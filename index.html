@@ -9,63 +9,190 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
 <script src="https://unpkg.com/docx@8.5.0/build/index.umd.js"></script>
-<script type="module">
-  try {
-    const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js');
-    const { getFirestore, doc, setDoc, getDoc, enableIndexedDbPersistence, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
-    const firebaseConfig = {
-      apiKey: "AIzaSyBZs9omBmYxwDk001VPs0w2ejexqjaS3aM",
-      authDomain: "gerador-de-eventos.firebaseapp.com",
-      projectId: "gerador-de-eventos",
-      storageBucket: "gerador-de-eventos.firebasestorage.app",
-      messagingSenderId: "94755036829",
-      appId: "1:94755036829:web:51396918e55d657337fe74"
-    };
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
-    try {
-      await enableIndexedDbPersistence(db);
-      console.log('✅ Persistência offline ativada');
-    } catch (err) {
-      console.warn('⚠️ Persistência:', err.code);
-    }
-    window.fbSalvar = async function(dados) {
-      try {
-        console.log('💾 Salvando no Firebase...');
-        await setDoc(doc(db, 'eventos', 'baseData'), {
-          ...dados,
-          updatedAt: serverTimestamp()
-        });
-        console.log('✅ Dados salvos no Firebase!');
-        return true;
-      } catch (e) {
-        console.error('❌ Erro ao salvar:', e.code, e.message);
-        return false;
-      }
-    };
-    window.fbCarregar = async function() {
-      try {
-        console.log('🔄 Carregando do Firebase...');
-        const snap = await getDoc(doc(db, 'eventos', 'baseData'));
-        if (snap.exists()) {
-          console.log('✅ Dados carregados!');
-          return snap.data();
-        }
-        console.log('📭 Documento vazio');
-        return null;
-      } catch (e) {
-        console.error('❌ Erro ao carregar:', e.code, e.message);
-        return null;
-      }
-    };
-    window.firebaseReady = true;
-    console.log('✅ Firebase inicializado!');
-    window.dispatchEvent(new Event('firebaseReady'));
-  } catch (error) {
-    console.error('❌ Erro Firebase:', error);
-    window.firebaseReady = false;
-    window.dispatchEvent(new Event('firebaseReady'));
+<script>
+// ─── SUPABASE CONFIG ───
+const SUPA_URL    = 'https://fyggsslndwsguavhduly.supabase.co';
+const SUPA_KEY    = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z2dzc2xuZHdzZ3VhdmhkdWx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxNzYyNDksImV4cCI6MjA5MTc1MjI0OX0.xxoROa9LNFBgSitG_sEP4IknAzIU7vxZuinRC_P0Lh4';
+const SUPA_SCHEMA = 'agenda';
+
+// Cabeçalhos padrão para todas as requisições
+function supaHeaders(extra) {
+  return Object.assign({
+    'apikey':        SUPA_KEY,
+    'Authorization': 'Bearer ' + SUPA_KEY,
+    'Content-Type':  'application/json',
+    'Accept':        'application/json',
+    // Necessário para usar um schema diferente de "public"
+    'Accept-Profile':  SUPA_SCHEMA,
+    'Content-Profile': SUPA_SCHEMA
+  }, extra || {});
+}
+
+// Helper: GET
+async function supaGet(table, query) {
+  const params = query ? '?' + query : '';
+  const res = await fetch(SUPA_URL + '/rest/v1/' + table + params, {
+    method: 'GET',
+    headers: supaHeaders()
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error('GET ' + table + ': ' + err);
   }
+  return res.json();
+}
+
+// Helper: UPSERT (insere ou atualiza)
+async function supaUpsert(table, body) {
+  const res = await fetch(SUPA_URL + '/rest/v1/' + table, {
+    method: 'POST',
+    headers: supaHeaders({ 'Prefer': 'resolution=merge-duplicates,return=minimal' }),
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error('UPSERT ' + table + ': ' + err);
+  }
+  return true;
+}
+
+// Helper: DELETE por condição
+async function supaDelete(table, query) {
+  const res = await fetch(SUPA_URL + '/rest/v1/' + table + '?' + query, {
+    method: 'DELETE',
+    headers: supaHeaders({ 'Prefer': 'return=minimal' })
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error('DELETE ' + table + ': ' + err);
+  }
+  return true;
+}
+
+// ─── SALVAR NO SUPABASE ───
+window.fbSalvar = async function(dados) {
+  try {
+    console.log('💾 Salvando no Supabase...');
+
+    // 1. Preferências globais (upsert pela PK "global")
+    await supaUpsert('preferencias', {
+      id:            'global',
+      default_color: dados.defaultColor || 'yellow',
+      current_view:  dados.currentView  || 'linear'
+    });
+
+    // 2. Lembrete pontual (upsert pela PK "global")
+    const p = dados.pontual || {};
+    await supaUpsert('lembrete_pontual', {
+      id:          'global',
+      lbl:         p.lbl         || 'A PAZ DE DEUS',
+      titulo:      p.titulo      || '',
+      subtitulo:   p.subtitulo   || '',
+      data:        p.data        || '',
+      horario:     p.horario     || '',
+      endereco:    p.endereco    || '',
+      localizacao: p.localizacao || '',
+      footer:      p.footer      || 'DEUS ABENÇOE'
+    });
+
+    // 3. Eventos: apaga todos e reinsere com ordem preservada
+    await supaDelete('eventos', 'id=gte.0');
+    const eventos = (dados.eventos || []).map((ev, i) => ({
+      mes:        ev.mes        || '',
+      data:       ev.data       || '',
+      dia_semana: ev.diaSemana  || '',
+      horario:    ev.horario    || '',
+      local:      ev.local      || '',
+      evento:     ev.evento     || '',
+      color:      ev.color      || 'yellow',
+      ordem:      i
+    }));
+    if (eventos.length > 0) {
+      await supaUpsert('eventos', eventos);
+    }
+
+    // 4. Igrejas: apaga todas e reinsere
+    await supaDelete('igrejas', 'id=gte.0');
+    const igrejas = (dados.igrejas || []).map(ig => ({
+      nome:     ig.nome     || '',
+      endereco: ig.endereco || '',
+      foto:     ig.foto     || '',
+      cultos:   ig.cultos   || []
+    }));
+    if (igrejas.length > 0) {
+      await supaUpsert('igrejas', igrejas);
+    }
+
+    console.log('✅ Dados salvos no Supabase!');
+    return true;
+  } catch (e) {
+    console.error('❌ Erro ao salvar no Supabase:', e.message);
+    return false;
+  }
+};
+
+// ─── CARREGAR DO SUPABASE ───
+window.fbCarregar = async function() {
+  try {
+    console.log('🔄 Carregando do Supabase...');
+
+    // Carrega em paralelo para desempenho
+    const [prefs, pontual, eventosRaw, igrejasRaw] = await Promise.all([
+      supaGet('preferencias',     'id=eq.global'),
+      supaGet('lembrete_pontual', 'id=eq.global'),
+      supaGet('eventos',          'order=ordem.asc'),
+      supaGet('igrejas',          'order=id.asc')
+    ]);
+
+    const pref = (prefs && prefs[0])   || {};
+    const pont = (pontual && pontual[0]) || {};
+
+    // Remapeia eventos para o formato interno do app
+    const eventos = (eventosRaw || []).map(ev => ({
+      mes:        ev.mes        || '',
+      data:       ev.data       || '',
+      diaSemana:  ev.dia_semana || '',
+      horario:    ev.horario    || '',
+      local:      ev.local      || '',
+      evento:     ev.evento     || '',
+      color:      ev.color      || 'yellow'
+    }));
+
+    // Igrejas: cultos já vem como JSON do banco
+    const igrejas = (igrejasRaw || []).map(ig => ({
+      nome:     ig.nome     || '',
+      endereco: ig.endereco || '',
+      foto:     ig.foto     || '',
+      cultos:   ig.cultos   || []
+    }));
+
+    console.log('✅ Carregado: ' + eventos.length + ' eventos, ' + igrejas.length + ' igrejas');
+    return {
+      defaultColor: pref.default_color || 'yellow',
+      currentView:  pref.current_view  || 'linear',
+      eventos,
+      igrejas,
+      pontual: {
+        lbl:         pont.lbl         || 'A PAZ DE DEUS',
+        titulo:      pont.titulo      || '',
+        subtitulo:   pont.subtitulo   || '',
+        data:        pont.data        || '',
+        horario:     pont.horario     || '',
+        endereco:    pont.endereco    || '',
+        localizacao: pont.localizacao || '',
+        footer:      pont.footer      || 'DEUS ABENÇOE'
+      }
+    };
+  } catch (e) {
+    console.error('❌ Erro ao carregar do Supabase:', e.message);
+    return null;
+  }
+};
+
+// Sinaliza que o "backend" está pronto (sem delay, pois é síncrono)
+window.firebaseReady = true;
+window.dispatchEvent(new Event('firebaseReady'));
+console.log('✅ Supabase inicializado!');
 </script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
@@ -461,11 +588,14 @@
       <div class="card">
         <div class="card-title">
           <span class="icon">📋</span> Base de Eventos (<span id="totalEvents">0</span>)
-          <div style="margin-left: auto; display: flex; gap: 8px;">
+          <div style="margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap;">
             <button class="btn btn-green" onclick="addRowToBase()">＋ Adicionar</button>
             <button class="btn btn-purple" onclick="exportarPDF()">📄 Exportar PDF</button>
             <button class="btn btn-gold" onclick="exportarExcel()">📊 Exportar Excel</button>
             <button class="btn btn-primary" onclick="limparBase()">🗑️ Limpar</button>
+            <button class="btn" style="background:linear-gradient(135deg,#2D3748 0%,#4A5568 100%);color:#fff;" onclick="exportarBackup()" title="Exportar backup completo de todos os dados do sistema">💾 Exportar Backup</button>
+            <button class="btn" style="background:linear-gradient(135deg,#276749 0%,#38A169 100%);color:#fff;" onclick="document.getElementById('backupImportInput').click()" title="Importar backup completo do sistema">📥 Importar Backup</button>
+            <input type="file" id="backupImportInput" accept=".json" style="display:none;" onchange="importarBackup(event)" />
           </div>
         </div>
         <div class="table-container">
@@ -903,7 +1033,7 @@
 <!-- FOOTER -->
 <div class="app-footer">
   <div class="footer-content">
-    <span class="text">© 2026 - Sistema Gerador de Lembretes Versão Firebase | desenvolvido por</span>
+    <span class="text">© 2026 - Sistema Gerador de Lembretes VS42 | desenvolvido por</span>
     <span class="logo">LM</span>
     <span class="dev-name">Leandro Machado</span>
     <span id="firebaseStatus" style="display:none;"></span>
@@ -932,11 +1062,11 @@ let editColor = 'yellow';
 let currentView = 'linear';
 let selectedEventIndex = null;
 
-// ─── FIREBASE ───
+// ─── SUPABASE STATUS ───
 function setFirebaseStatus(ok, msg) {
   const el = document.getElementById('firebaseStatus');
   if (!el) return;
-  el.textContent = ok ? '🟢 Firebase: ' + (msg||'Conectado') : '🔴 Firebase: ' + (msg||'Erro');
+  el.textContent = ok ? '🟢 Supabase: ' + (msg||'Conectado') : '🔴 Supabase: ' + (msg||'Erro');
   el.style.color = ok ? '#48BB78' : '#F56565';
 }
 async function saveToFirebase() {
@@ -958,7 +1088,7 @@ async function saveToFirebase() {
     setFirebaseStatus(true, '✅ Salvo ('+kb+'KB)');
   } else {
     setFirebaseStatus(false, '❌ Falha ao salvar');
-    alert('❌ Não foi possível salvar no Firebase.');
+    alert('❌ Não foi possível salvar no Supabase.');
   }
 }
 async function loadFromFirebase() {
@@ -967,7 +1097,7 @@ async function loadFromFirebase() {
     await new Promise(r => setTimeout(r, 100));
     tentativas++;
   }
-  if (!window.fbCarregar) { setFirebaseStatus(false,'❌ Firebase não inicializou'); return; }
+  if (!window.fbCarregar) { setFirebaseStatus(false,'❌ Supabase não inicializou'); return; }
   setFirebaseStatus(true,'🔄 Carregando...');
   const data = await window.fbCarregar();
   if (data) {
@@ -990,6 +1120,115 @@ async function loadFromFirebase() {
   } else {
     setFirebaseStatus(true,'📭 Banco vazio');
   }
+}
+
+// ─── BACKUP EXPORTAR / IMPORTAR ───
+function exportarBackup() {
+  try {
+    const pontualData = {
+      lbl:        (document.getElementById('pontualLbl')        ||{}).value||'A PAZ DE DEUS',
+      titulo:     (document.getElementById('pontualTitulo')     ||{}).value||'',
+      subtitulo:  (document.getElementById('pontualSubtitulo')  ||{}).value||'',
+      data:       (document.getElementById('pontualData')       ||{}).value||'',
+      horario:    (document.getElementById('pontualHorario')    ||{}).value||'',
+      endereco:   (document.getElementById('pontualEndereco')   ||{}).value||'',
+      localizacao:(document.getElementById('pontualLocalizacao')||{}).value||'',
+      footer:     (document.getElementById('pontualFooter')     ||{}).value||'DEUS ABENÇOE'
+    };
+    const backup = {
+      _versao: 'VS42',
+      _exportadoEm: new Date().toISOString(),
+      eventos:      baseData,
+      igrejas:      igrejasData,
+      defaultColor,
+      currentView,
+      pontual:      pontualData
+    };
+    const json = JSON.stringify(backup, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    const now  = new Date();
+    const stamp = now.getFullYear()
+      + String(now.getMonth()+1).padStart(2,'0')
+      + String(now.getDate()).padStart(2,'0')
+      + '_'
+      + String(now.getHours()).padStart(2,'0')
+      + String(now.getMinutes()).padStart(2,'0');
+    a.href     = url;
+    a.download = 'backup_gerador_' + stamp + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    const kb = Math.round(json.length / 1024);
+    alert('✅ Backup exportado com sucesso!\n\n📦 ' + backup.eventos.length + ' eventos | ' + backup.igrejas.length + ' igrejas\n💾 Tamanho: ' + kb + ' KB');
+  } catch(e) {
+    alert('❌ Erro ao exportar backup: ' + e.message);
+    console.error(e);
+  }
+}
+
+function importarBackup(event) {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+  if (!file.name.endsWith('.json')) {
+    alert('❌ Selecione um arquivo .json válido gerado por este sistema.');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = async function(e) {
+    try {
+      const backup = JSON.parse(e.target.result);
+      // Validação básica
+      if (!backup._versao || (!Array.isArray(backup.eventos) && !Array.isArray(backup.igrejas))) {
+        alert('❌ Arquivo de backup inválido ou corrompido.\nCertifique-se de usar um backup gerado por este sistema.');
+        return;
+      }
+      const totalEv  = (backup.eventos  ||[]).length;
+      const totalIg  = (backup.igrejas  ||[]).length;
+      const exportEm = backup._exportadoEm ? new Date(backup._exportadoEm).toLocaleString('pt-BR') : '(desconhecido)';
+      const confirmMsg = '📥 IMPORTAR BACKUP\n\n'
+        + '📅 Exportado em: ' + exportEm + '\n'
+        + '📦 ' + totalEv + ' eventos | ' + totalIg + ' igrejas\n\n'
+        + '⚠️ ATENÇÃO: Os dados atuais do sistema serão substituídos pelos dados do backup.\n\n'
+        + 'Deseja continuar?';
+      if (!confirm(confirmMsg)) return;
+
+      // Restaurar dados
+      if (Array.isArray(backup.eventos))  baseData    = backup.eventos;
+      if (Array.isArray(backup.igrejas))  igrejasData = backup.igrejas;
+      if (backup.defaultColor) defaultColor = backup.defaultColor;
+      if (backup.currentView)  currentView  = backup.currentView;
+
+      // Restaurar campos do evento pontual
+      if (backup.pontual) {
+        const p = backup.pontual;
+        if (document.getElementById('pontualLbl'))         document.getElementById('pontualLbl').value         = p.lbl        ||'A PAZ DE DEUS';
+        if (document.getElementById('pontualTitulo'))      document.getElementById('pontualTitulo').value      = p.titulo      ||'';
+        if (document.getElementById('pontualSubtitulo'))   document.getElementById('pontualSubtitulo').value   = p.subtitulo   ||'';
+        if (document.getElementById('pontualData'))        document.getElementById('pontualData').value        = p.data        ||'';
+        if (document.getElementById('pontualHorario'))     document.getElementById('pontualHorario').value     = p.horario     ||'';
+        if (document.getElementById('pontualEndereco'))    document.getElementById('pontualEndereco').value    = p.endereco    ||'';
+        if (document.getElementById('pontualLocalizacao')) document.getElementById('pontualLocalizacao').value = p.localizacao ||'';
+        if (document.getElementById('pontualFooter'))      document.getElementById('pontualFooter').value      = p.footer      ||'DEUS ABENÇOE';
+      }
+
+      // Atualizar telas
+      renderTable();
+      renderIgrejas();
+      renderPreview();
+      renderPontual();
+
+      // Salvar no Supabase automaticamente
+      await saveToFirebase();
+
+      alert('✅ Backup importado com sucesso!\n\n📦 ' + totalEv + ' eventos | ' + totalIg + ' igrejas restaurados.');
+    } catch(err) {
+      alert('❌ Erro ao importar backup: ' + err.message + '\n\nVerifique se o arquivo não está corrompido.');
+      console.error(err);
+    }
+  };
+  reader.readAsText(file, 'UTF-8');
 }
 
 // ─── INIT ───

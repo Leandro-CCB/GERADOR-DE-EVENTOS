@@ -15,16 +15,24 @@ const SUPA_URL    = 'https://fyggsslndwsguavhduly.supabase.co';
 const SUPA_KEY    = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z2dzc2xuZHdzZ3VhdmhkdWx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxNzYyNDksImV4cCI6MjA5MTc1MjI0OX0.xxoROa9LNFBgSitG_sEP4IknAzIU7vxZuinRC_P0Lh4';
 const SUPA_SCHEMA = 'agenda';
 
-// Cabeçalhos padrão para todas as requisições
-function supaHeaders(extra) {
+// Cabeçalhos para leitura (GET) — usa Accept-Profile
+function supaReadHeaders(extra) {
   return Object.assign({
-    'apikey':        SUPA_KEY,
-    'Authorization': 'Bearer ' + SUPA_KEY,
-    'Content-Type':  'application/json',
-    'Accept':        'application/json',
-    // Necessário para usar um schema diferente de "public"
-    'Accept-Profile':  SUPA_SCHEMA,
-    'Content-Profile': SUPA_SCHEMA
+    'apikey':          SUPA_KEY,
+    'Authorization':   'Bearer ' + SUPA_KEY,
+    'Accept':          'application/json',
+    'Accept-Profile':  SUPA_SCHEMA
+  }, extra || {});
+}
+
+// Cabeçalhos para escrita (POST/DELETE) — usa Content-Profile
+function supaWriteHeaders(extra) {
+  return Object.assign({
+    'apikey':           SUPA_KEY,
+    'Authorization':    'Bearer ' + SUPA_KEY,
+    'Content-Type':     'application/json',
+    'Accept':           'application/json',
+    'Content-Profile':  SUPA_SCHEMA
   }, extra || {});
 }
 
@@ -33,7 +41,7 @@ async function supaGet(table, query) {
   const params = query ? '?' + query : '';
   const res = await fetch(SUPA_URL + '/rest/v1/' + table + params, {
     method: 'GET',
-    headers: supaHeaders()
+    headers: supaReadHeaders()
   });
   if (!res.ok) {
     const err = await res.text();
@@ -46,7 +54,7 @@ async function supaGet(table, query) {
 async function supaUpsert(table, body) {
   const res = await fetch(SUPA_URL + '/rest/v1/' + table, {
     method: 'POST',
-    headers: supaHeaders({ 'Prefer': 'resolution=merge-duplicates,return=minimal' }),
+    headers: supaWriteHeaders({ 'Prefer': 'resolution=merge-duplicates,return=minimal' }),
     body: JSON.stringify(body)
   });
   if (!res.ok) {
@@ -60,7 +68,7 @@ async function supaUpsert(table, body) {
 async function supaDelete(table, query) {
   const res = await fetch(SUPA_URL + '/rest/v1/' + table + '?' + query, {
     method: 'DELETE',
-    headers: supaHeaders({ 'Prefer': 'return=minimal' })
+    headers: supaWriteHeaders({ 'Prefer': 'return=minimal' })
   });
   if (!res.ok) {
     const err = await res.text();

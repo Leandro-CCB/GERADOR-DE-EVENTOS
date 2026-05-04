@@ -13,7 +13,7 @@
 // ─── SUPABASE CONFIG ───
 const SUPA_URL    = 'https://fyggsslndwsguavhduly.supabase.co';
 const SUPA_KEY    = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5Z2dzc2xuZHdzZ3VhdmhkdWx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxNzYyNDksImV4cCI6MjA5MTc1MjI0OX0.xxoROa9LNFBgSitG_sEP4IknAzIU7vxZuinRC_P0Lh4';
-const SUPA_SCHEMA = 'agenda';
+const SUPA_SCHEMA = 'public';
 
 // Cabeçalhos para leitura (GET) — usa Accept-Profile
 function supaReadHeaders(extra) {
@@ -83,28 +83,14 @@ window.fbSalvar = async function(dados) {
     console.log('💾 Salvando no Supabase...');
 
     // 1. Preferências globais (upsert pela PK "global")
-    await supaUpsert('preferencias', {
+    await supaUpsert('agenda_preferencias', {
       id:            'global',
       default_color: dados.defaultColor || 'yellow',
       current_view:  dados.currentView  || 'linear'
     });
 
-    // 2. Lembrete pontual (upsert pela PK "global")
-    const p = dados.pontual || {};
-    await supaUpsert('lembrete_pontual', {
-      id:          'global',
-      lbl:         p.lbl         || 'A PAZ DE DEUS',
-      titulo:      p.titulo      || '',
-      subtitulo:   p.subtitulo   || '',
-      data:        p.data        || '',
-      horario:     p.horario     || '',
-      endereco:    p.endereco    || '',
-      localizacao: p.localizacao || '',
-      footer:      p.footer      || 'DEUS ABENÇOE'
-    });
-
-    // 3. Eventos: apaga todos e reinsere com ordem preservada
-    await supaDelete('eventos', 'id=gte.0');
+    // 2. Eventos: apaga todos e reinsere com ordem preservada
+    await supaDelete('agenda_eventos', 'id=gte.0');
     const eventos = (dados.eventos || []).map((ev, i) => ({
       mes:        ev.mes        || '',
       data:       ev.data       || '',
@@ -116,11 +102,11 @@ window.fbSalvar = async function(dados) {
       ordem:      i
     }));
     if (eventos.length > 0) {
-      await supaUpsert('eventos', eventos);
+      await supaUpsert('agenda_eventos', eventos);
     }
 
     // 4. Igrejas: apaga todas e reinsere
-    await supaDelete('igrejas', 'id=gte.0');
+    await supaDelete('agenda_igrejas', 'id=gte.0');
     const igrejas = (dados.igrejas || []).map(ig => ({
       nome:     ig.nome     || '',
       endereco: ig.endereco || '',
@@ -128,7 +114,7 @@ window.fbSalvar = async function(dados) {
       cultos:   ig.cultos   || []
     }));
     if (igrejas.length > 0) {
-      await supaUpsert('igrejas', igrejas);
+      await supaUpsert('agenda_igrejas', igrejas);
     }
 
     console.log('✅ Dados salvos no Supabase!');
@@ -145,15 +131,13 @@ window.fbCarregar = async function() {
     console.log('🔄 Carregando do Supabase...');
 
     // Carrega em paralelo para desempenho
-    const [prefs, pontual, eventosRaw, igrejasRaw] = await Promise.all([
-      supaGet('preferencias',     'id=eq.global'),
-      supaGet('lembrete_pontual', 'id=eq.global'),
-      supaGet('eventos',          'order=ordem.asc'),
-      supaGet('igrejas',          'order=id.asc')
+    const [prefs, eventosRaw, igrejasRaw] = await Promise.all([
+      supaGet('agenda_preferencias',     'id=eq.global'),
+      supaGet('agenda_eventos',          'order=ordem.asc'),
+      supaGet('agenda_igrejas',          'order=id.asc')
     ]);
 
     const pref = (prefs && prefs[0])   || {};
-    const pont = (pontual && pontual[0]) || {};
 
     // Remapeia eventos para o formato interno do app
     const eventos = (eventosRaw || []).map(ev => ({
@@ -180,16 +164,6 @@ window.fbCarregar = async function() {
       currentView:  pref.current_view  || 'linear',
       eventos,
       igrejas,
-      pontual: {
-        lbl:         pont.lbl         || 'A PAZ DE DEUS',
-        titulo:      pont.titulo      || '',
-        subtitulo:   pont.subtitulo   || '',
-        data:        pont.data        || '',
-        horario:     pont.horario     || '',
-        endereco:    pont.endereco    || '',
-        localizacao: pont.localizacao || '',
-        footer:      pont.footer      || 'DEUS ABENÇOE'
-      }
     };
   } catch (e) {
     console.error('❌ Erro ao carregar do Supabase:', e.message);
@@ -749,47 +723,47 @@ console.log('✅ Supabase inicializado!');
     <div class="input-row">
       <div class="input-wrap" style="flex: 1 1 100%;">
         <label>Texto Superior</label>
-        <input type="text" id="pontualLbl" value="A PAZ DE DEUS" oninput="renderPontual(); agendarSalvarPontual()" />
+        <input type="text" id="pontualLbl" value="A PAZ DE DEUS" oninput="renderPontual()" />
       </div>
     </div>
     <div class="input-row">
       <div class="input-wrap" style="flex: 1 1 100%;">
         <label>Título Principal</label>
-        <textarea id="pontualTitulo" oninput="renderPontual(); agendarSalvarPontual()">CULTO DE EVANGELIZAÇÃO</textarea>
+        <textarea id="pontualTitulo" oninput="renderPontual()">CULTO DE EVANGELIZAÇÃO</textarea>
       </div>
     </div>
     <div class="input-row">
       <div class="input-wrap" style="flex: 1 1 100%;">
         <label>Subtítulo</label>
-        <input type="text" id="pontualSubtitulo" value="CALCÁRIO CAIEIRAS" oninput="renderPontual(); atualizarEnderecoPorSubtitulo(); agendarSalvarPontual()" />
+        <input type="text" id="pontualSubtitulo" value="CALCÁRIO CAIEIRAS" oninput="renderPontual(); atualizarEnderecoPorSubtitulo()" />
       </div>
     </div>
     <div class="input-row">
       <div class="input-wrap">
         <label>Data</label>
-        <input type="text" id="pontualData" value="15/02/2026" placeholder="dd/mm/aaaa" oninput="renderPontual(); agendarSalvarPontual()" />
+        <input type="text" id="pontualData" value="15/02/2026" placeholder="dd/mm/aaaa" oninput="renderPontual()" />
       </div>
       <div class="input-wrap">
         <label>Horário</label>
-        <input type="text" id="pontualHorario" value="19:30" placeholder="hh:mm" oninput="renderPontual(); agendarSalvarPontual()" />
+        <input type="text" id="pontualHorario" value="19:30" placeholder="hh:mm" oninput="renderPontual()" />
       </div>
     </div>
     <div class="input-row">
       <div class="input-wrap" style="flex: 1 1 100%;">
         <label>Endereço</label>
-        <textarea id="pontualEndereco" oninput="renderPontual(); agendarSalvarPontual()">R. LUIZ ANTONIO MAIA, 356 - CALCÁRIO, CAIEIRAS - SP</textarea>
+        <textarea id="pontualEndereco" oninput="renderPontual()">R. LUIZ ANTONIO MAIA, 356 - CALCÁRIO, CAIEIRAS - SP</textarea>
       </div>
     </div>
     <div class="input-row">
       <div class="input-wrap" style="flex: 1 1 100%;">
         <label>Observação (Ponto de referência ou informação)</label>
-        <textarea id="pontualLocalizacao" oninput="renderPontual(); agendarSalvarPontual()" placeholder="Ex: Próximo ao supermercado XYZ"></textarea>
+        <textarea id="pontualLocalizacao" oninput="renderPontual()" placeholder="Ex: Próximo ao supermercado XYZ"></textarea>
       </div>
     </div>
     <div class="input-row">
       <div class="input-wrap" style="flex: 1 1 100%;">
         <label>Texto Inferior</label>
-        <input type="text" id="pontualFooter" value="DEUS ABENÇOE" oninput="renderPontual(); agendarSalvarPontual()" />
+        <input type="text" id="pontualFooter" value="DEUS ABENÇOE" oninput="renderPontual()" />
       </div>
     </div>
   </div>
@@ -1079,17 +1053,7 @@ function setFirebaseStatus(ok, msg) {
 }
 async function saveToFirebase() {
   setFirebaseStatus(true, '💾 Salvando...');
-  const pontualData = {
-    lbl: (document.getElementById('pontualLbl')||{}).value||'A PAZ DE DEUS',
-    titulo: (document.getElementById('pontualTitulo')||{}).value||'',
-    subtitulo: (document.getElementById('pontualSubtitulo')||{}).value||'',
-    data: (document.getElementById('pontualData')||{}).value||'',
-    horario: (document.getElementById('pontualHorario')||{}).value||'',
-    endereco: (document.getElementById('pontualEndereco')||{}).value||'',
-    localizacao: (document.getElementById('pontualLocalizacao')||{}).value||'',
-    footer: (document.getElementById('pontualFooter')||{}).value||'DEUS ABENÇOE'
-  };
-  const dados = { eventos: baseData, igrejas: igrejasData, defaultColor, currentView, pontual: pontualData };
+  const dados = { eventos: baseData, igrejas: igrejasData, defaultColor, currentView };
   const ok = await window.fbSalvar(dados);
   if (ok) {
     const kb = Math.round(JSON.stringify(dados).length/1024);
@@ -1113,17 +1077,6 @@ async function loadFromFirebase() {
     igrejasData = data.igrejas||[];
     defaultColor = data.defaultColor||'yellow';
     currentView = data.currentView||'linear';
-    if (data.pontual) {
-      const p = data.pontual;
-      if (document.getElementById('pontualLbl')) document.getElementById('pontualLbl').value = p.lbl||'A PAZ DE DEUS';
-      if (document.getElementById('pontualTitulo')) document.getElementById('pontualTitulo').value = p.titulo||'';
-      if (document.getElementById('pontualSubtitulo')) document.getElementById('pontualSubtitulo').value = p.subtitulo||'';
-      if (document.getElementById('pontualData')) document.getElementById('pontualData').value = p.data||'';
-      if (document.getElementById('pontualHorario')) document.getElementById('pontualHorario').value = p.horario||'';
-      if (document.getElementById('pontualEndereco')) document.getElementById('pontualEndereco').value = p.endereco||'';
-      if (document.getElementById('pontualLocalizacao')) document.getElementById('pontualLocalizacao').value = p.localizacao||'';
-      if (document.getElementById('pontualFooter')) document.getElementById('pontualFooter').value = p.footer||'DEUS ABENÇOE';
-    }
     setFirebaseStatus(true,'✅ Carregado: '+baseData.length+' eventos, '+igrejasData.length+' igrejas');
   } else {
     setFirebaseStatus(true,'📭 Banco vazio');
@@ -1641,7 +1594,6 @@ function renderPreview() {
 }
 
 // ─── RENDER PONTUAL ───
-function agendarSalvarPontual() { saveToFirebase(); }
 function renderPontual() {
   document.getElementById('previewLbl').textContent=document.getElementById('pontualLbl').value;
   document.getElementById('previewTitulo').textContent=document.getElementById('pontualTitulo').value;
